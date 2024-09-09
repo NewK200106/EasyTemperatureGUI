@@ -1,0 +1,20 @@
+[
+    {
+        "column_0": "kuchnia",
+        "column_1": "0x0033",
+        "column_2": "300",
+        "column_3": "y"
+    },
+    {
+        "column_0": "\u0142azienka",
+        "column_1": "0x1133",
+        "column_2": "400",
+        "column_3": "y"
+    },
+    {
+        "column_0": "stolarnia",
+        "column_1": "0x1115`",
+        "column_2": "500",
+        "column_3": "n"
+    }
+]
