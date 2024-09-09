@@ -13,7 +13,102 @@
   <property name="windowTitle">
    <string>EasyTemperature</string>
   </property>
-  <widget class="QWidget" name="centralwidget"/>
+  <property name="autoFillBackground">
+   <bool>false</bool>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">background-image:url(:/nowyPrzedrostek/background.jpg);
+background-repeat: no-repeat;
+background-position: center;
+</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QGroupBox" name="Quickmenu">
+    <property name="geometry">
+     <rect>
+      <x>120</x>
+      <y>130</y>
+      <width>281</width>
+      <height>361</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">background-image:url(:/nowyPrzedrostek/palms.jpg)</string>
+    </property>
+    <layout class="QVBoxLayout" name="verticalLayout">
+     <item>
+      <widget class="QLabel" name="label">
+       <property name="maximumSize">
+        <size>
+         <width>400</width>
+         <height>200</height>
+        </size>
+       </property>
+       <property name="font">
+        <font>
+         <pointsize>30</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color:white;
+background-color:white;</string>
+       </property>
+       <property name="text">
+        <string>Quick Menu</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton">
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>100</height>
+        </size>
+       </property>
+       <property name="font">
+        <font>
+         <pointsize>24</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color:white
+;background-image:url(:/nowyPrzedrostek/red.png);</string>
+       </property>
+       <property name="text">
+        <string>Create new config</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="load_send_button">
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>100</height>
+        </size>
+       </property>
+       <property name="font">
+        <font>
+         <pointsize>24</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-image:url(:/nowyPrzedrostek/green.png);
+color:white;
+</string>
+       </property>
+       <property name="text">
+        <string>Load and Send</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
     <rect>
@@ -32,6 +127,7 @@
     <addaction name="actionSave"/>
     <addaction name="actionExit"/>
     <addaction name="actionSave_as"/>
+    <addaction name="actionSend_config"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -85,7 +181,14 @@
     <string>Save as</string>
    </property>
   </action>
+  <action name="actionSend_config">
+   <property name="text">
+    <string>Send config</string>
+   </property>
+  </action>
  </widget>
- <resources/>
+ <resources>
+  <include location="css/resources.qrc"/>
+ </resources>
  <connections/>
 </ui>

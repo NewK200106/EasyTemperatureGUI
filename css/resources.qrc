@@ -1,0 +1,8 @@
+<RCC>
+  <qresource prefix="nowyPrzedrostek">
+    <file>green.png</file>
+    <file>palms.jpg</file>
+    <file>red.png</file>
+    <file>background.jpg</file>
+  </qresource>
+</RCC>
