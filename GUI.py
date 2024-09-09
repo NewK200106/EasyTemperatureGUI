@@ -202,7 +202,7 @@ class Dialog3(dialog3_base, dialog3_class):
 
         # Generowanie wiadomości
         if address and interval and state:
-            data_to_send = f"chat private {address} tempconf:{interval}:{state}"
+            data_to_send = f"chat private {address} tconf:\"{interval}:{state}\" \n"
         else:
             self.log_error('Invalid data in JSON file.')
             return
@@ -226,7 +226,7 @@ class Dialog3(dialog3_base, dialog3_class):
                 dsrdtr=False
             )
             # Wysyłanie danych
-            self.serial_port.write(data_to_send.encode('utf-8'))
+            self.serial_port.write(data_to_send.encode('ascii'))
             self.textEdit.append(f"Data sent successfully (record {self.current_index + 1}/{len(self.json_data)}).")
             
             # Przejdź do następnego rekordu
@@ -239,7 +239,7 @@ class Dialog3(dialog3_base, dialog3_class):
             try:
                 if self.serial_port.in_waiting > 0:
                     # Odbierz dane z portu szeregowego
-                    response = self.serial_port.read(self.serial_port.in_waiting).decode('utf-8')
+                    response = self.serial_port.read(self.serial_port.in_waiting).decode('ascii')
 
                     # Obsługa kodów ucieczki ANSI za pomocą wyrażeń regularnych
                     ansi_escape = re.compile(r'(?:\x1B[@-_][0-?]*[ -/]*[@-~])')
