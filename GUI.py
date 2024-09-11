@@ -138,36 +138,33 @@ class Dialog2(dialog2_base, dialog2_class):
                 item = QtWidgets.QTableWidgetItem(value if value is not None else "")
                 self.tableWidget.setItem(row_index, column_index, item)
 
+
 class Dialog3(dialog3_base, dialog3_class):
     def __init__(self, json_data=None):
         super().__init__()
         self.setupUi(self)
-        self.initialize_com_ports()  # Inicjalizowanie portów COM
-
+        self.initialize_com_ports()
         self.serial_port = None
         self.json_data = json_data if json_data is not None else []
-        self.current_index = 0  # Wskaźnik obecnego rekordu
-        self.baud_rate_warning_shown = False  # Flaga do kontrolowania wyświetlania komunikatu o baud rate
+        self.current_index = 0
+        self.baud_rate_warning_shown = False
+        self.response_buffer = ''
+        self.processing_complete = False  # Flaga oznaczająca zakończenie przetwarzania
 
-        # Wyświetl dane w polu textEdit (opcjonalnie)
         if self.json_data:
             self.textEdit.setText(f"Loaded {len(self.json_data)} records.")
             self.textEdit.append("Starting data sending.")
 
-        # Połącz przyciski z funkcjami
         self.SendButton.clicked.connect(self.start_sending)
         self.CancelButton.clicked.connect(self.close)
 
-        # Timer do okresowego sprawdzania danych przychodzących
         self.read_timer = QTimer(self)
         self.read_timer.timeout.connect(self.read_data_from_serial)
-        self.read_timer.start(100)  # Sprawdzaj dane co 100 ms
+        self.read_timer.start(100)
 
-        # Timer do automatycznego wysyłania danych
         self.send_timer = QTimer(self)
 
     def initialize_com_ports(self):
-        # Pobierz dostępne porty COM i dodaj je do COMbox
         com_ports = [port.device for port in serial.tools.list_ports.comports()]
         existing_ports = set(self.COMbox.itemText(i) for i in range(self.COMbox.count()))
         for port in com_ports:
@@ -179,20 +176,21 @@ class Dialog3(dialog3_base, dialog3_class):
             QtWidgets.QMessageBox.critical(self, 'Error', 'No data to send.')
             return
 
-        # Rozpocznij wysyłanie danych co określony czas
         self.send_timer.timeout.connect(self.send_data)
-        self.send_timer.start(2000)  # Ustaw na 2 sekundy (2000 ms) między wysyłkami
+        self.send_timer.start(2000)
 
     def send_data(self):
+        if self.processing_complete:
+            return
+
         if self.current_index >= len(self.json_data):
-            QtWidgets.QMessageBox.information(self, 'Info', 'Wszystkie dane zostały wysłane.')
+            self.processing_complete = True
+            QtWidgets.QMessageBox.information(self, 'Info', 'All data has been sent.')
             self.send_timer.stop()
             return
 
-        # Pobranie obecnego rekordu z json_data
         current_record = self.json_data[self.current_index]
 
-        # Pobranie danych z kolumn JSON-a
         address = current_record.get('column_1')
         expected_interval = current_record.get('column_2')
         expected_state = current_record.get('column_3')
@@ -213,15 +211,12 @@ class Dialog3(dialog3_base, dialog3_class):
             self.log_error('Invalid address in JSON file.')
             return
 
-        # Wyświetl wiadomość w textEdit (opcjonalnie)
         self.textEdit.append(f"Sending: {tshow_message}")
 
-        # Zamknij poprzedni port, jeśli jest otwarty
         if self.serial_port and self.serial_port.is_open:
             self.serial_port.close()
 
         try:
-            # Otwarcie portu szeregowego
             self.serial_port = serial.Serial(
                 port=port_name,
                 baudrate=baud_rate,
@@ -232,89 +227,140 @@ class Dialog3(dialog3_base, dialog3_class):
                 dsrdtr=False
             )
 
-            # Wysyłanie wiadomości "tshow"
             self.serial_port.write(tshow_message.encode('ascii'))
             self.textEdit.append(f"tshow command sent successfully (record {self.current_index + 1}/{len(self.json_data)}).")
 
-            # Oczekiwanie na odpowiedź
-            QTimer.singleShot(1000, lambda: self.read_response_and_compare(expected_interval, expected_state))  # Czekaj 1 sekundę
+            QTimer.singleShot(2000, self.check_response)
 
         except Exception as e:
             self.log_error(f'Failed to send data: {e}')
 
-    def read_response_and_compare(self, expected_interval, expected_state):
-        try:
-            # Oczekiwanie na odpowiedź z urządzenia
-            response = self.serial_port.read_until().decode('ascii')
+    def check_response(self):
+        if self.processing_complete:
+            return
 
-            # Obsługa kodów ucieczki ANSI za pomocą wyrażeń regularnych
+        response_clean = self.response_buffer
+        self.response_buffer = ''
+
+        if response_clean.strip():
+            self.textEdit.append(f"Debug - Full Response: {response_clean}")
+
             ansi_escape = re.compile(r'(?:\x1B[@-_][0-?]*[ -/]*[@-~])')
-            response_clean = ansi_escape.sub('', response)  # Usuń kody ucieczki z danych
+            response_clean = ansi_escape.sub('', response_clean)
 
-            # Wyświetl przetworzone dane w textEdit
-            self.textEdit.append(f"Received: {response_clean}")
+            self.textEdit.append(f"Debug - Cleaned Response: {response_clean}")
 
-            # Analiza odpowiedzi — zakładamy, że odpowiedź zawiera `interval` i `state`
-            match = re.search(r'sconf:(\d+):(\w+)', response_clean)
+            current_record = self.json_data[self.current_index]
+            address = current_record.get('column_1')
 
+            # Sprawdzanie odpowiedzi na podstawie oczekiwanego adresu
+            pattern = rf'<{address}>: \*you\* sconf: (\d+):(\d)'
+            match = re.search(pattern, response_clean)
             if match:
                 received_interval = match.group(1)
                 received_state = match.group(2)
 
-                # Porównanie z oczekiwanymi wartościami
+                received_state = 'y' if received_state == '1' else 'n'
+
+                expected_interval = current_record.get('column_2')
+                expected_state = current_record.get('column_3')
+
                 if received_interval == expected_interval and received_state == expected_state:
-                    self.textEdit.append(f"Data matches for address. Skipping configuration.")
-                    self.current_index += 1
-                    self.baud_rate_warning_shown = False  # Resetuj ostrzeżenie o baud rate
+                    self.textEdit.append(f"Data matches for address {address}. Sending OK message.")
+                    self.send_ok_message()
                 else:
-                    # Jeśli dane się nie zgadzają, wyślij wiadomość konfiguracyjną
-                    self.textEdit.append(f"Data does not match. Sending configuration.")
+                    self.textEdit.append(f"Data does not match for address {address}. Sending configuration.")
                     self.send_configuration(expected_interval, expected_state)
-
             else:
-                self.textEdit.append(f"Failed to parse response. Sending configuration by default.")
-                self.send_configuration(expected_interval, expected_state)
+                self.textEdit.append(f"Failed to parse response. Response: {response_clean}")
+                self.textEdit.append(f"No valid response received. Resending tshow command.")
+        else:
+            self.textEdit.append(f"No valid response received. Resending tshow command.")
+            self.textEdit.append(f"Otrzymano: {response_clean}")
 
-        except Exception as e:
-            self.log_error(f'Failed to read data: {e}')
+        # Sprawdzanie, czy zakończyć operację, jeśli wszystkie rekordy zostały przetworzone
+        if self.current_index >= len(self.json_data):
+            if not self.processing_complete:
+                self.textEdit.append(f"All records processed successfully.")
+                self.processing_complete = True
+        else:
+            self.textEdit.append(f"Sending: chat private {address} tshow")
 
     def send_configuration(self, interval, state):
         current_record = self.json_data[self.current_index]
         address = current_record.get('column_1')
 
-        config_message = f"chat private {address} tconf:\"{interval}:{state}\" \n"
+        state_value = '1' if state == 'y' else '0'
+
+        config_message = f"chat private {address} tconf:{interval}:{state_value} \n"
 
         try:
-            # Wysyłanie wiadomości konfiguracyjnej
             self.serial_port.write(config_message.encode('ascii'))
             self.textEdit.append(f"Configuration sent successfully for address {address}.")
             
-            # Przejdź do następnego rekordu
             self.current_index += 1
 
         except Exception as e:
             self.log_error(f'Failed to send configuration: {e}')
 
+    def send_ok_message(self):
+        current_record = self.json_data[self.current_index]
+        address = current_record.get('column_1')
+
+        ok_message = f"chat private {address} OK \n"
+
+        try:
+            self.serial_port.write(ok_message.encode('ascii'))
+            self.textEdit.append(f"OK message sent successfully for address {address}.")
+            
+            self.current_index += 1
+
+            # Sprawdzenie, czy zakończyć operację, jeśli wszystkie rekordy zostały przetworzone
+            if self.current_index >= len(self.json_data):
+                self.textEdit.append(f"All records processed successfully.")
+                self.processing_complete = True
+
+        except Exception as e:
+            self.log_error(f'Failed to send OK message: {e}')
+
     def read_data_from_serial(self):
         if self.serial_port and self.serial_port.is_open:
             try:
                 if self.serial_port.in_waiting > 0:
-                    # Odbierz dane z portu szeregowego
                     response = self.serial_port.read(self.serial_port.in_waiting).decode('ascii')
+                    self.response_buffer += response
 
-                    # Obsługa kodów ucieczki ANSI za pomocą wyrażeń regularnych
                     ansi_escape = re.compile(r'(?:\x1B[@-_][0-?]*[ -/]*[@-~])')
-                    response_clean = ansi_escape.sub('', response)  # Usuń kody ucieczki z danych
+                    response_clean = ansi_escape.sub('', self.response_buffer)
 
-                    # Wyświetl przetworzone dane w textEdit
                     self.textEdit.append(f"Received: {response_clean}")
+
+                    if self.serial_port.in_waiting == 0:
+                        self.check_response()
+
+                # Sprawdzanie, czy zakończyć operację, jeśli wszystkie rekordy zostały przetworzone
+                if self.current_index >= len(self.json_data) and not self.processing_complete:
+                    self.textEdit.append(f"All records processed successfully.")
+                    self.processing_complete = True
+
             except Exception as e:
                 self.log_error(f'Failed to read data: {e}')
 
     def log_error(self, message):
-        # Wyświetl komunikat błędu w textEdit
         self.textEdit.append(f"Error: {message}")
         QtWidgets.QMessageBox.critical(self, 'Error', message)
+
+    def close(self):
+        """Override close method to ensure proper cleanup."""
+        if self.serial_port and self.serial_port.is_open:
+            self.serial_port.close()
+            self.textEdit.append("Serial port closed.")
+
+        self.send_timer.stop()
+        self.read_timer.stop()
+        self.textEdit.append("Operation canceled and timers stopped.")
+
+        super().close()  # Call the base class close method
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
