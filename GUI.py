@@ -147,14 +147,16 @@ class Dialog3(dialog3_base, dialog3_class):
         self.serial_port = None
         self.json_data = json_data if json_data is not None else []
         self.current_index = 0  # Wskaźnik obecnego rekordu
+        self.baud_rate_warning_shown = False  # Flaga do kontrolowania wyświetlania komunikatu o baud rate
 
         # Wyświetl dane w polu textEdit (opcjonalnie)
         if self.json_data:
             self.textEdit.setText(f"Loaded {len(self.json_data)} records.")
+            self.textEdit.append("Starting data sending.")
 
         # Połącz przyciski z funkcjami
         self.SendButton.clicked.connect(self.start_sending)
-        self.CancelButton.clicked.connect(self.close_serial_port)
+        self.CancelButton.clicked.connect(self.close)
 
         # Timer do okresowego sprawdzania danych przychodzących
         self.read_timer = QTimer(self)
@@ -163,16 +165,14 @@ class Dialog3(dialog3_base, dialog3_class):
 
         # Timer do automatycznego wysyłania danych
         self.send_timer = QTimer(self)
-        self.send_timer.timeout.connect(self.send_data)
 
     def initialize_com_ports(self):
         # Pobierz dostępne porty COM i dodaj je do COMbox
         com_ports = [port.device for port in serial.tools.list_ports.comports()]
-        self.COMbox.addItems(com_ports)
-
-    def close_serial_port(self):
-        if self.serial_port and self.serial_port.is_open:
-            self.serial_port.close()
+        existing_ports = set(self.COMbox.itemText(i) for i in range(self.COMbox.count()))
+        for port in com_ports:
+            if port not in existing_ports:
+                self.COMbox.addItem(port)
 
     def start_sending(self):
         if not self.json_data:
@@ -180,6 +180,7 @@ class Dialog3(dialog3_base, dialog3_class):
             return
 
         # Rozpocznij wysyłanie danych co określony czas
+        self.send_timer.timeout.connect(self.send_data)
         self.send_timer.start(2000)  # Ustaw na 2 sekundy (2000 ms) między wysyłkami
 
     def send_data(self):
@@ -201,7 +202,9 @@ class Dialog3(dialog3_base, dialog3_class):
         try:
             baud_rate = int(self.baudBox.currentText())
         except ValueError:
-            self.log_error('Please select a valid baud rate.')
+            if not self.baud_rate_warning_shown:
+                self.log_error('Please select a valid baud rate.')
+                self.baud_rate_warning_shown = True
             return
 
         if address:
@@ -234,7 +237,7 @@ class Dialog3(dialog3_base, dialog3_class):
             self.textEdit.append(f"tshow command sent successfully (record {self.current_index + 1}/{len(self.json_data)}).")
 
             # Oczekiwanie na odpowiedź
-            self.read_response_and_compare(expected_interval, expected_state)
+            QTimer.singleShot(1000, lambda: self.read_response_and_compare(expected_interval, expected_state))  # Czekaj 1 sekundę
 
         except Exception as e:
             self.log_error(f'Failed to send data: {e}')
@@ -251,28 +254,26 @@ class Dialog3(dialog3_base, dialog3_class):
             # Wyświetl przetworzone dane w textEdit
             self.textEdit.append(f"Received: {response_clean}")
 
-            # Analiza odpowiedzi — zakładamy, że odpowiedź zawiera `sconf:<liczba>:<liczba>`
-            response_match = re.search(r'sconf:(\d+):(\d+)', response_clean)
+            # Analiza odpowiedzi — zakładamy, że odpowiedź zawiera `interval` i `state`
+            match = re.search(r'sconf:(\d+):(\w+)', response_clean)
 
-            if response_match:
-                received_interval = response_match.group(1)
-                received_state = response_match.group(2)
+            if match:
+                received_interval = match.group(1)
+                received_state = match.group(2)
 
                 # Porównanie z oczekiwanymi wartościami
                 if received_interval == expected_interval and received_state == expected_state:
                     self.textEdit.append(f"Data matches for address. Skipping configuration.")
-                    self.current_index += 1  # Przejdź do następnego rekordu
+                    self.current_index += 1
+                    self.baud_rate_warning_shown = False  # Resetuj ostrzeżenie o baud rate
                 else:
-                    # Jeśli dane się nie zgadzają, czekaj przed wysyłaniem konfiguracji
-                    self.textEdit.append(f"Data does not match. Waiting before sending configuration.")
-                    
-                    # Czekaj 2 sekundy, zanim wyślesz konfigurację
-                    QTimer.singleShot(2000, lambda: self.send_configuration(expected_interval, expected_state))
+                    # Jeśli dane się nie zgadzają, wyślij wiadomość konfiguracyjną
+                    self.textEdit.append(f"Data does not match. Sending configuration.")
+                    self.send_configuration(expected_interval, expected_state)
 
             else:
-                self.textEdit.append(f"Failed to parse response. Waiting before sending configuration.")
-                # Czekaj 2 sekundy, zanim wyślesz konfigurację w przypadku niepoprawnej odpowiedzi
-                QTimer.singleShot(2000, lambda: self.send_configuration(expected_interval, expected_state))
+                self.textEdit.append(f"Failed to parse response. Sending configuration by default.")
+                self.send_configuration(expected_interval, expected_state)
 
         except Exception as e:
             self.log_error(f'Failed to read data: {e}')
