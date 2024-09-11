@@ -154,7 +154,7 @@ class Dialog3(dialog3_base, dialog3_class):
 
         # Połącz przyciski z funkcjami
         self.SendButton.clicked.connect(self.start_sending)
-        self.CancelButton.clicked.connect(self.close)
+        self.CancelButton.clicked.connect(self.close_serial_port)
 
         # Timer do okresowego sprawdzania danych przychodzących
         self.read_timer = QTimer(self)
@@ -169,6 +169,10 @@ class Dialog3(dialog3_base, dialog3_class):
         # Pobierz dostępne porty COM i dodaj je do COMbox
         com_ports = [port.device for port in serial.tools.list_ports.comports()]
         self.COMbox.addItems(com_ports)
+
+    def close_serial_port(self):
+        if self.serial_port and self.serial_port.is_open:
+            self.serial_port.close()
 
     def start_sending(self):
         if not self.json_data:
@@ -186,11 +190,11 @@ class Dialog3(dialog3_base, dialog3_class):
 
         # Pobranie obecnego rekordu z json_data
         current_record = self.json_data[self.current_index]
-        
+
         # Pobranie danych z kolumn JSON-a
         address = current_record.get('column_1')
-        interval = current_record.get('column_2')
-        state = current_record.get('column_3')
+        expected_interval = current_record.get('column_2')
+        expected_state = current_record.get('column_3')
 
         port_name = self.COMbox.currentText()
 
@@ -200,15 +204,14 @@ class Dialog3(dialog3_base, dialog3_class):
             self.log_error('Please select a valid baud rate.')
             return
 
-        # Generowanie wiadomości
-        if address and interval and state:
-            data_to_send = f"chat private {address} tconf:\"{interval}:{state}\" \n"
+        if address:
+            tshow_message = f"chat private {address} tshow \n"
         else:
-            self.log_error('Invalid data in JSON file.')
+            self.log_error('Invalid address in JSON file.')
             return
 
         # Wyświetl wiadomość w textEdit (opcjonalnie)
-        self.textEdit.append(f"Sending: {data_to_send}")
+        self.textEdit.append(f"Sending: {tshow_message}")
 
         # Zamknij poprzedni port, jeśli jest otwarty
         if self.serial_port and self.serial_port.is_open:
@@ -225,14 +228,71 @@ class Dialog3(dialog3_base, dialog3_class):
                 rtscts=False,
                 dsrdtr=False
             )
-            # Wysyłanie danych
-            self.serial_port.write(data_to_send.encode('ascii'))
-            self.textEdit.append(f"Data sent successfully (record {self.current_index + 1}/{len(self.json_data)}).")
+
+            # Wysyłanie wiadomości "tshow"
+            self.serial_port.write(tshow_message.encode('ascii'))
+            self.textEdit.append(f"tshow command sent successfully (record {self.current_index + 1}/{len(self.json_data)}).")
+
+            # Oczekiwanie na odpowiedź
+            self.read_response_and_compare(expected_interval, expected_state)
+
+        except Exception as e:
+            self.log_error(f'Failed to send data: {e}')
+
+    def read_response_and_compare(self, expected_interval, expected_state):
+        try:
+            # Oczekiwanie na odpowiedź z urządzenia
+            response = self.serial_port.read_until().decode('ascii')
+
+            # Obsługa kodów ucieczki ANSI za pomocą wyrażeń regularnych
+            ansi_escape = re.compile(r'(?:\x1B[@-_][0-?]*[ -/]*[@-~])')
+            response_clean = ansi_escape.sub('', response)  # Usuń kody ucieczki z danych
+
+            # Wyświetl przetworzone dane w textEdit
+            self.textEdit.append(f"Received: {response_clean}")
+
+            # Analiza odpowiedzi — zakładamy, że odpowiedź zawiera `sconf:<liczba>:<liczba>`
+            response_match = re.search(r'sconf:(\d+):(\d+)', response_clean)
+
+            if response_match:
+                received_interval = response_match.group(1)
+                received_state = response_match.group(2)
+
+                # Porównanie z oczekiwanymi wartościami
+                if received_interval == expected_interval and received_state == expected_state:
+                    self.textEdit.append(f"Data matches for address. Skipping configuration.")
+                    self.current_index += 1  # Przejdź do następnego rekordu
+                else:
+                    # Jeśli dane się nie zgadzają, czekaj przed wysyłaniem konfiguracji
+                    self.textEdit.append(f"Data does not match. Waiting before sending configuration.")
+                    
+                    # Czekaj 2 sekundy, zanim wyślesz konfigurację
+                    QTimer.singleShot(2000, lambda: self.send_configuration(expected_interval, expected_state))
+
+            else:
+                self.textEdit.append(f"Failed to parse response. Waiting before sending configuration.")
+                # Czekaj 2 sekundy, zanim wyślesz konfigurację w przypadku niepoprawnej odpowiedzi
+                QTimer.singleShot(2000, lambda: self.send_configuration(expected_interval, expected_state))
+
+        except Exception as e:
+            self.log_error(f'Failed to read data: {e}')
+
+    def send_configuration(self, interval, state):
+        current_record = self.json_data[self.current_index]
+        address = current_record.get('column_1')
+
+        config_message = f"chat private {address} tconf:\"{interval}:{state}\" \n"
+
+        try:
+            # Wysyłanie wiadomości konfiguracyjnej
+            self.serial_port.write(config_message.encode('ascii'))
+            self.textEdit.append(f"Configuration sent successfully for address {address}.")
             
             # Przejdź do następnego rekordu
             self.current_index += 1
+
         except Exception as e:
-            self.log_error(f'Failed to send data: {e}')
+            self.log_error(f'Failed to send configuration: {e}')
 
     def read_data_from_serial(self):
         if self.serial_port and self.serial_port.is_open:
