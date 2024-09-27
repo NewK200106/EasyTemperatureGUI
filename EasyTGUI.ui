@@ -17,12 +17,16 @@
    <bool>false</bool>
   </property>
   <property name="styleSheet">
-   <string notr="true">background-image:url(:/nowyPrzedrostek/background.jpg);
-background-repeat: no-repeat;
-background-position: center;
-</string>
+   <string notr="true"/>
   </property>
   <widget class="QWidget" name="centralwidget">
+   <property name="styleSheet">
+    <string notr="true">
+background-repeat: no-repeat;
+background-position: center;
+background-image:url(:/nowyPrzedrostek/background.jpg)
+</string>
+   </property>
    <widget class="QGroupBox" name="Quickmenu">
     <property name="geometry">
      <rect>
